@@ -53,21 +53,6 @@ class Agent:
         # the policy here is the same one used in the RL tutorial: https://www.kaggle.com/code/stonet2000/rl-with-lux-2-rl-problem-solving
         return dict(faction="AlphaStrike", bid=0)
 
-    """
-    How to teach you about where to place factories? 
-
-    Problems: 
-    - I don't have reward immediatelly after placing factories, because I need to end the game in order to obtain any result. 
-    - Can't use net, because there is no dataset
-
-    What can I do? 
-
-    - Use heuristic, that minimizes distance to the most important resources
-    - Write a combination of RL algorithms?
-
-    
-    """
-
     def factory_placement_policy(self, step: int, obs, remainingOverageTime: int = 60):
         # the policy here is the same one used in the RL tutorial: https://www.kaggle.com/code/stonet2000/rl-with-lux-2-rl-problem-solving
         if obs["teams"][self.player]["metal"] == 0:
@@ -117,6 +102,8 @@ class Agent:
         obs = obs[self.player]
 
         obs = th.from_numpy(obs).float()
+        if th.cuda.is_available():
+            obs = obs.cuda()
         with th.no_grad():
 
             # to improve performance, we have a rule based action mask generator for the controller used
