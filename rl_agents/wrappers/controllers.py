@@ -5,6 +5,8 @@ import numpy as np
 import numpy.typing as npt
 from gym import spaces
 
+from lux.kit import obs_to_game_state
+
 
 # Controller class copied here since you won't have access to the luxai_s2 package directly on the competition server
 class Controller:
@@ -25,6 +27,24 @@ class Controller:
         Generates a boolean action mask indicating in each discrete dimension whether it would be valid or not
         """
         raise NotImplementedError()
+
+
+class SimpleFactoryController(Controller):
+    def __init__(self, evn_config) -> None:
+        action_space = spaces.Discrete(3)
+        self.env_config = evn_config
+        super().__init__(action_space)
+
+    def action_to_lux_action(self, agent: str, obs: Dict[str, Any]):
+        shared_obs = obs['player_0']
+        game_state = obs_to_game_state(None, self.env_config, shared_obs)
+        lux_action = {}
+        if len(game_state.units[agent]) < 5:
+            factories = game_state.factories[agent]
+            for factory_id in game_state.factories[agent]:
+                if factories[factory_id].can_build_heavy(game_state):
+                    lux_action[factory_id] = factories[factory_id].build_heavy()
+        return lux_action
 
 
 class SimpleUnitDiscreteController(Controller):
@@ -97,45 +117,41 @@ class SimpleUnitDiscreteController(Controller):
         return np.array([3, 0, 0, 0, 0, 1])
 
     def action_to_lux_action(
-        self, agent: str, obs: Dict[str, Any], action: npt.NDArray
+        self, agent: str, obs: Dict[str, Any], action: npt.NDArray, unit_id: str
     ):
         shared_obs = obs["player_0"]
         lux_action = dict()
         units = shared_obs["units"][agent]
-        for unit_id in units.keys():
-            unit = units[unit_id]
-            choice = action
-            action_queue = []
-            no_op = False
-            if self._is_move_action(choice):
-                action_queue = [self._get_move_action(choice)]
-            elif self._is_transfer_action(choice):
-                action_queue = [self._get_transfer_action(choice)]
-            elif self._is_pickup_action(choice):
-                action_queue = [self._get_pickup_action(choice)]
-            elif self._is_dig_action(choice):
-                action_queue = [self._get_dig_action(choice)]
-            else:
-                # action is a no_op, so we don't update the action queue
-                no_op = True
-
-            # simple trick to help agents conserve power is to avoid updating the action queue
-            # if the agent was previously trying to do that particular action already
-            if len(unit["action_queue"]) > 0 and len(action_queue) > 0:
-                same_actions = (unit["action_queue"][0] == action_queue[0]).all()
-                if same_actions:
-                    no_op = True
-            if not no_op:
-                lux_action[unit_id] = action_queue
-
-            break
-
-        factories = shared_obs["factories"][agent]
-        if len(units) == 0:
-            for unit_id in factories.keys():
-                lux_action[unit_id] = 1  # build a single heavy
-
+        action_queue = self._action_to_unit_action(action, unit_id, units)
+        if action_queue:
+            lux_action[unit_id] = action_queue
         return lux_action
+
+    def _action_to_unit_action(self, action: npt.NDArray, unit_id, units_observations: Dict[str, Any]):
+        unit = units_observations[unit_id]
+        choice = action
+        action_queue = []
+        no_op = False
+        if self._is_move_action(choice):
+            action_queue = [self._get_move_action(choice)]
+        elif self._is_transfer_action(choice):
+            action_queue = [self._get_transfer_action(choice)]
+        elif self._is_pickup_action(choice):
+            action_queue = [self._get_pickup_action(choice)]
+        elif self._is_dig_action(choice):
+            action_queue = [self._get_dig_action(choice)]
+        else:
+            # action is a no_op, so we don't update the action queue
+            no_op = True
+        # simple trick to help agents conserve power is to avoid updating the action queue
+        # if the agent was previously trying to do that particular action already
+        if len(unit["action_queue"]) > 0 and len(action_queue) > 0:
+            same_actions = (unit["action_queue"][0]
+                            == action_queue[0]).all()
+            if same_actions:
+                no_op = True
+        if not no_op:
+            return action_queue
 
     def action_masks(self, agent: str, obs: Dict[str, Any]):
         """
@@ -158,7 +174,7 @@ class SimpleUnitDiscreteController(Controller):
                 f_pos = f_data["pos"]
                 # store in a 3x3 space around the factory position it's strain id.
                 factory_occupancy_map[
-                    f_pos[0] - 1 : f_pos[0] + 2, f_pos[1] - 1 : f_pos[1] + 2
+                    f_pos[0] - 1: f_pos[0] + 2, f_pos[1] - 1: f_pos[1] + 2
                 ] = f_data["strain_id"]
 
         units = shared_obs["units"][agent]
@@ -185,7 +201,8 @@ class SimpleUnitDiscreteController(Controller):
                     or transfer_pos[1] >= len(factory_occupancy_map[0])
                 ):
                     continue
-                factory_there = factory_occupancy_map[transfer_pos[0], transfer_pos[1]]
+                factory_there = factory_occupancy_map[transfer_pos[0],
+                                                      transfer_pos[1]]
                 if factory_there in shared_obs["teams"][agent]["factory_strains"]:
                     action_mask[
                         self.transfer_dim_high - self.transfer_act_dims + i
@@ -205,16 +222,16 @@ class SimpleUnitDiscreteController(Controller):
             )
             if board_sum > 0 and not on_top_of_factory:
                 action_mask[
-                    self.dig_dim_high - self.dig_act_dims : self.dig_dim_high
+                    self.dig_dim_high - self.dig_act_dims: self.dig_dim_high
                 ] = True
 
             # pickup is valid only if on top of factory tile
             if on_top_of_factory:
                 action_mask[
-                    self.pickup_dim_high - self.pickup_act_dims : self.pickup_dim_high
+                    self.pickup_dim_high - self.pickup_act_dims: self.pickup_dim_high
                 ] = True
                 action_mask[
-                    self.dig_dim_high - self.dig_act_dims : self.dig_dim_high
+                    self.dig_dim_high - self.dig_act_dims: self.dig_dim_high
                 ] = False
 
             # no-op is always valid

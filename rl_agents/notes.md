@@ -24,10 +24,10 @@ def format_action_vec(a: np.ndarray):
 
 # TODO
 
-1. Execute on kaggle RL agent vs normal agent.
-2. Implement:
->
-> - Use heuristic, that minimizes distance to the most important resources
-> - Use MCTS for agents
+1. Zbadać factory_placemnt
+2. Poszerzyć stan na którym operuje agent
+3. Lista algorytmów + eksperymentów
 
-3. Sumbit RL agent that will use that heuristic
+# To read
+
+1 - <https://spinningup.openai.com/en/latest/algorithms/ppo.html>

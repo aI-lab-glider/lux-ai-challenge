@@ -1,1 +1,3 @@
-competition-repo/
+__pycache__/
+competition_repo/
+.vscode/
