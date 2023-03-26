@@ -32,28 +32,28 @@ from stable_baselines3.ppo import PPO
 
 from wrappers import SimpleUnitDiscreteController, SimpleUnitObservationWrapper
 
+FACTORY_ICE_PROCESSING_RATE = 100
+
 
 class CustomEnvWrapper(gym.Wrapper):
-    def __init__(self, env: gym.Env) -> None:
-        """
-        Adds a custom reward and turns the LuxAI_S2 environment into a single-agent environment for easy training
-        """
+    def __init__(self, env: gym.Env) -> None:  # gym.Env
         super().__init__(env)
+        self.env = env
         self.prev_step_metrics = None
 
     def step(self, action):
         agent = "player_0"
+        # TODO: make it work for both agents so the agent can learn to be aware of competition.
         opp_agent = "player_1"
 
         opp_factories = self.env.state.factories[opp_agent]
         for k in opp_factories.keys():
             factory = opp_factories[k]
-            # set enemy factories to have 1000 water to keep them alive the whole around and treat the game as single-agent
             factory.cargo.water = 1000
 
-        # submit actions for just one agent to make it single-agent
-        # and save single-agent versions of the data below
-        action = {agent: action}
+        action = {
+            agent: action
+        }
         obs, _, done, info = self.env.step(action)
         obs = obs[agent]
         done = done[agent]
@@ -63,13 +63,13 @@ class CustomEnvWrapper(gym.Wrapper):
 
         info = dict()
         metrics = dict()
+
         metrics["ice_dug"] = (
-            stats["generation"]["ice"]["HEAVY"] + stats["generation"]["ice"]["LIGHT"]
+            stats["generation"]["ice"]["HEAVY"] +
+            stats["generation"]["ice"]["LIGHT"]
         )
         metrics["water_produced"] = stats["generation"]["water"]
 
-        # we save these two to see often the agent updates robot action queues and how often enough
-        # power to do so and succeed (less frequent updates = more power is saved)
         metrics["action_queue_updates_success"] = stats["action_queue_updates_success"]
         metrics["action_queue_updates_total"] = stats["action_queue_updates_total"]
 
@@ -78,13 +78,20 @@ class CustomEnvWrapper(gym.Wrapper):
 
         reward = 0
         if self.prev_step_metrics is not None:
+            # destroyed robots are the metric, that is important for us
+            robots_destroyed_this_step = stats['destroyed']["HEAVY"] + \
+                stats['destroyed']["LIGHT"]
+
             # we check how much ice and water is produced and reward the agent for generating both
-            ice_dug_this_step = metrics["ice_dug"] - self.prev_step_metrics["ice_dug"]
+            ice_dug_this_step = metrics["ice_dug"] - \
+                self.prev_step_metrics["ice_dug"]
             water_produced_this_step = (
-                metrics["water_produced"] - self.prev_step_metrics["water_produced"]
+                metrics["water_produced"] -
+                self.prev_step_metrics["water_produced"]
             )
-            # we reward water production more as it is the most important resource for survival
-            reward = ice_dug_this_step / 100 + water_produced_this_step
+
+            reward = ice_dug_this_step / FACTORY_ICE_PROCESSING_RATE + \
+                water_produced_this_step - robots_destroyed_this_step
 
         self.prev_step_metrics = copy.deepcopy(metrics)
         return obs, reward, done, info
@@ -101,7 +108,8 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Simple script that simplifies Lux AI Season 2 as a single-agent environment with a reduced observation and action space. It trains a policy that can succesfully control a heavy unit to dig ice and transfer it back to a factory to keep it alive"
     )
-    parser.add_argument("-s", "--seed", type=int, default=12, help="seed for training")
+    parser.add_argument("-s", "--seed", type=int,
+                        default=12, help="seed for training")
     parser.add_argument(
         "-n",
         "--n-envs",
@@ -143,10 +151,8 @@ def parse_args():
 
 def make_env(env_id: str, rank: int, seed: int = 0, max_episode_steps=100):
     def _init() -> gym.Env:
-        # verbose = 0
-        # collect stats so we can create reward functions
-        # max factories set to 2 for simplification and keeping returns consistent as we survive longer if there are more initial resources
-        env = gym.make(env_id, verbose=0, collect_stats=True, MAX_FACTORIES=2)
+        env = gym.make(env_id, verbose=0, collect_stats=True,
+                       FACTORY_WATER_CONSUMPTION=0, MAX_FACTORIES=2)
 
         # Add a SB3 wrapper to make it work with SB3 and simplify the action space with the controller
         # this will remove the bidding phase and factory placement phase. For factory placement we use
@@ -159,8 +165,9 @@ def make_env(env_id: str, rank: int, seed: int = 0, max_episode_steps=100):
         )
         env = SimpleUnitObservationWrapper(
             env
-        )  # changes observation to include a few simple features
-        env = CustomEnvWrapper(env)  # convert to single agent, add our reward
+        )
+        # convert to single agent, add our custom reward
+        env = CustomEnvWrapper(env)
         env = TimeLimit(
             env, max_episode_steps=max_episode_steps
         )  # set horizon to 100 to make training faster. Default is 1000
@@ -200,7 +207,8 @@ def evaluate(args, env_id, model):
     model = model.load(args.model_path)
     video_length = 1000  # default horizon
     eval_env = SubprocVecEnv(
-        [make_env(env_id, i, max_episode_steps=1000) for i in range(args.n_envs)]
+        [make_env(env_id, i, max_episode_steps=1000)
+         for i in range(args.n_envs)]
     )
     eval_env = VecVideoRecorder(
         eval_env,
