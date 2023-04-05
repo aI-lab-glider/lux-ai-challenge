@@ -1,0 +1,7 @@
+luxai_s2
+pettingzoo==1.12.0
+gym==0.21.0
+stable-baselines3
+cloudpickle
+pickle5
+"importlib_metadata<5.0"
