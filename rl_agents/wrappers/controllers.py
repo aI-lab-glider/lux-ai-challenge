@@ -69,10 +69,6 @@ class SimpleUnitDiscreteController(Controller):
 
         self.max_bots_count = 10
 
-# 'unit_id': spaces.Discrete(self.max_bots_count),
-#             'action': spaces.Discrete(self.total_act_dims),
-#             # 0: None, 1: heavy, 2: light
-#             'built_robot_type': spaces.Discrete(3)
         action_space = spaces.MultiDiscrete(
             [self.max_bots_count, self.total_act_dims, 3])
         super().__init__(action_space)
@@ -116,6 +112,9 @@ class SimpleUnitDiscreteController(Controller):
             action_queue = [self._get_dig_action(id)]
         return action_queue
 
+    def _create_unit_name(self, id):
+        return f'unit_{id}'
+
     def action_to_lux_action(
         self, agent: str, obs: Dict[str, Any], action: npt.NDArray
     ):
@@ -132,18 +131,19 @@ class SimpleUnitDiscreteController(Controller):
         target_unit, unit_action, factory_action = action
         if len(units) > 0:
             if str(target_unit) in units:
-                lux_action[str(target_unit)] = self._map_action(unit_action)
+                lux_action[self._create_unit_name(
+                    target_unit)] = self._map_action(unit_action)
             else:
-                last_built_unit = str(len(units) - 1)
+                last_built_unit = list(units.keys())[-1]
                 lux_action[last_built_unit] = self._map_action(unit_action)
 
         factories = shared_obs["factories"][agent]
         if len(units) == 0:
-            for unit_id in factories.keys():
-                lux_action[unit_id] = 1  # build a single heavy
+            for factory_id in factories.keys():
+                lux_action[factory_id] = 1  # build a single heavy
         else:
-            for unit_id in factories.keys():
-                lux_action[unit_id] = factory_action  # build a single heavy
+            for factory_id in factories.keys():
+                lux_action[factory_id] = factory_action  # build a single heavy
 
         return lux_action
 
