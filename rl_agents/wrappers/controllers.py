@@ -65,12 +65,13 @@ class SimpleUnitDiscreteController(Controller):
         self.dig_dim_high = self.pickup_dim_high + self.dig_act_dims
         self.no_op_dim_high = self.dig_dim_high + self.no_op_dims
 
-        self.total_act_dims = self.no_op_dim_high
+        self.unit_act_dims = self.no_op_dim_high
 
         self.max_bots_count = 10
+        self.factory_act_count = 3
 
         action_space = spaces.MultiDiscrete(
-            [self.max_bots_count, self.total_act_dims, 3])
+            [self.max_bots_count, self.unit_act_dims, self.factory_act_count])
         super().__init__(action_space)
 
     def _is_move_action(self, id):
@@ -128,7 +129,7 @@ class SimpleUnitDiscreteController(Controller):
         2. other units continue to do the same action as before
         """
 
-        target_unit, unit_action, factory_action = action
+        target_unit, unit_action, factory_action = [a[0] for a in action]
         if len(units) > 0:
             if str(target_unit) in units:
                 lux_action[self._create_unit_name(
@@ -146,6 +147,13 @@ class SimpleUnitDiscreteController(Controller):
                 lux_action[factory_id] = factory_action  # build a single heavy
 
         return lux_action
+
+    def split_logits_by_dim(self, logits):
+        robot_id_logits = logits[:, :self.max_bots_count]
+        unit_action_logits = logits[:, self.max_bots_count:
+                                    self.max_bots_count + self.unit_act_dims]
+        factory_action_logits = logits[:, -self.factory_act_count+1:]
+        return robot_id_logits, unit_action_logits, factory_action_logits
 
     def action_masks(self, agent: str, obs: Dict[str, Any]):
         """
@@ -172,11 +180,12 @@ class SimpleUnitDiscreteController(Controller):
                 ] = f_data["strain_id"]
 
         units = shared_obs["units"][agent]
-        action_mask = np.zeros((self.total_act_dims), dtype=bool)
+
+        unit_action_mask = np.zeros(self.unit_act_dims, dtype=bool)
         for unit_id in units.keys():
-            action_mask = np.zeros(self.total_act_dims)
+
             # movement is always valid
-            action_mask[:4] = True
+            unit_action_mask[:4] = True
 
             # transferring is valid only if the target exists
             unit = units[unit_id]
@@ -198,7 +207,7 @@ class SimpleUnitDiscreteController(Controller):
                 factory_there = factory_occupancy_map[transfer_pos[0],
                                                       transfer_pos[1]]
                 if factory_there in shared_obs["teams"][agent]["factory_strains"]:
-                    action_mask[
+                    unit_action_mask[
                         self.transfer_dim_high - self.transfer_act_dims + i
                     ] = True
 
@@ -215,20 +224,23 @@ class SimpleUnitDiscreteController(Controller):
                 + shared_obs["board"]["lichen"][pos[0], pos[1]]
             )
             if board_sum > 0 and not on_top_of_factory:
-                action_mask[
+                unit_action_mask[
                     self.dig_dim_high - self.dig_act_dims: self.dig_dim_high
                 ] = True
 
             # pickup is valid only if on top of factory tile
             if on_top_of_factory:
-                action_mask[
+                unit_action_mask[
                     self.pickup_dim_high - self.pickup_act_dims: self.pickup_dim_high
                 ] = True
-                action_mask[
+                unit_action_mask[
                     self.dig_dim_high - self.dig_act_dims: self.dig_dim_high
                 ] = False
 
             # no-op is always valid
-            action_mask[-1] = True
+            unit_action_mask[-1] = True
             break
+        action_mask = np.ones((sum(self.action_space.nvec), ), dtype=bool)
+        action_mask[self.max_bots_count:self.max_bots_count +
+                    self.unit_act_dims] = unit_action_mask
         return action_mask
