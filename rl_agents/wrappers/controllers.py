@@ -65,8 +65,13 @@ class SimpleUnitDiscreteController(Controller):
         self.dig_dim_high = self.pickup_dim_high + self.dig_act_dims
         self.no_op_dim_high = self.dig_dim_high + self.no_op_dims
 
-        self.total_act_dims = self.no_op_dim_high
-        action_space = spaces.Discrete(self.total_act_dims)
+        self.unit_act_dims = self.no_op_dim_high
+
+        self.max_bots_count = 10
+        self.factory_act_count = 3
+
+        action_space = spaces.MultiDiscrete(
+            [self.max_bots_count, self.unit_act_dims, self.factory_act_count])
         super().__init__(action_space)
 
     def _is_move_action(self, id):
@@ -96,46 +101,59 @@ class SimpleUnitDiscreteController(Controller):
     def _get_dig_action(self, id):
         return np.array([3, 0, 0, 0, 0, 1])
 
+    def _map_action(self, id):
+        action_queue = []
+        if self._is_move_action(id):
+            action_queue = [self._get_move_action(id)]
+        elif self._is_transfer_action(id):
+            action_queue = [self._get_transfer_action(id)]
+        elif self._is_pickup_action(id):
+            action_queue = [self._get_pickup_action(id)]
+        elif self._is_dig_action(id):
+            action_queue = [self._get_dig_action(id)]
+        return action_queue
+
+    def _create_unit_name(self, id):
+        return f'unit_{id}'
+
     def action_to_lux_action(
         self, agent: str, obs: Dict[str, Any], action: npt.NDArray
     ):
         shared_obs = obs["player_0"]
         lux_action = dict()
         units = shared_obs["units"][agent]
-        for unit_id in units.keys():
-            unit = units[unit_id]
-            choice = action
-            action_queue = []
-            no_op = False
-            if self._is_move_action(choice):
-                action_queue = [self._get_move_action(choice)]
-            elif self._is_transfer_action(choice):
-                action_queue = [self._get_transfer_action(choice)]
-            elif self._is_pickup_action(choice):
-                action_queue = [self._get_pickup_action(choice)]
-            elif self._is_dig_action(choice):
-                action_queue = [self._get_dig_action(choice)]
+
+        """
+        Two actions take place here:
+        1. for one unit of created units an action is updated 
+        2. other units continue to do the same action as before
+        """
+
+        target_unit, unit_action, factory_action = [a[0] for a in action]
+        if len(units) > 0:
+            if str(target_unit) in units:
+                lux_action[self._create_unit_name(
+                    target_unit)] = self._map_action(unit_action)
             else:
-                # action is a no_op, so we don't update the action queue
-                no_op = True
-
-            # simple trick to help agents conserve power is to avoid updating the action queue
-            # if the agent was previously trying to do that particular action already
-            if len(unit["action_queue"]) > 0 and len(action_queue) > 0:
-                same_actions = (unit["action_queue"][0] == action_queue[0]).all()
-                if same_actions:
-                    no_op = True
-            if not no_op:
-                lux_action[unit_id] = action_queue
-
-            break
+                last_built_unit = list(units.keys())[-1]
+                lux_action[last_built_unit] = self._map_action(unit_action)
 
         factories = shared_obs["factories"][agent]
         if len(units) == 0:
-            for unit_id in factories.keys():
-                lux_action[unit_id] = 1  # build a single heavy
+            for factory_id in factories.keys():
+                lux_action[factory_id] = 1  # build a single heavy
+        else:
+            for factory_id in factories.keys():
+                lux_action[factory_id] = factory_action  # build a single heavy
 
         return lux_action
+
+    def split_logits_by_dim(self, logits):
+        robot_id_logits = logits[:, :self.max_bots_count]
+        unit_action_logits = logits[:, self.max_bots_count:
+                                    self.max_bots_count + self.unit_act_dims]
+        factory_action_logits = logits[:, -self.factory_act_count+1:]
+        return robot_id_logits, unit_action_logits, factory_action_logits
 
     def action_masks(self, agent: str, obs: Dict[str, Any]):
         """
@@ -158,15 +176,16 @@ class SimpleUnitDiscreteController(Controller):
                 f_pos = f_data["pos"]
                 # store in a 3x3 space around the factory position it's strain id.
                 factory_occupancy_map[
-                    f_pos[0] - 1 : f_pos[0] + 2, f_pos[1] - 1 : f_pos[1] + 2
+                    f_pos[0] - 1: f_pos[0] + 2, f_pos[1] - 1: f_pos[1] + 2
                 ] = f_data["strain_id"]
 
         units = shared_obs["units"][agent]
-        action_mask = np.zeros((self.total_act_dims), dtype=bool)
+
+        unit_action_mask = np.zeros(self.unit_act_dims, dtype=bool)
         for unit_id in units.keys():
-            action_mask = np.zeros(self.total_act_dims)
+
             # movement is always valid
-            action_mask[:4] = True
+            unit_action_mask[:4] = True
 
             # transferring is valid only if the target exists
             unit = units[unit_id]
@@ -185,9 +204,10 @@ class SimpleUnitDiscreteController(Controller):
                     or transfer_pos[1] >= len(factory_occupancy_map[0])
                 ):
                     continue
-                factory_there = factory_occupancy_map[transfer_pos[0], transfer_pos[1]]
+                factory_there = factory_occupancy_map[transfer_pos[0],
+                                                      transfer_pos[1]]
                 if factory_there in shared_obs["teams"][agent]["factory_strains"]:
-                    action_mask[
+                    unit_action_mask[
                         self.transfer_dim_high - self.transfer_act_dims + i
                     ] = True
 
@@ -204,20 +224,23 @@ class SimpleUnitDiscreteController(Controller):
                 + shared_obs["board"]["lichen"][pos[0], pos[1]]
             )
             if board_sum > 0 and not on_top_of_factory:
-                action_mask[
-                    self.dig_dim_high - self.dig_act_dims : self.dig_dim_high
+                unit_action_mask[
+                    self.dig_dim_high - self.dig_act_dims: self.dig_dim_high
                 ] = True
 
             # pickup is valid only if on top of factory tile
             if on_top_of_factory:
-                action_mask[
-                    self.pickup_dim_high - self.pickup_act_dims : self.pickup_dim_high
+                unit_action_mask[
+                    self.pickup_dim_high - self.pickup_act_dims: self.pickup_dim_high
                 ] = True
-                action_mask[
-                    self.dig_dim_high - self.dig_act_dims : self.dig_dim_high
+                unit_action_mask[
+                    self.dig_dim_high - self.dig_act_dims: self.dig_dim_high
                 ] = False
 
             # no-op is always valid
-            action_mask[-1] = True
+            unit_action_mask[-1] = True
             break
+        action_mask = np.ones((sum(self.action_space.nvec), ), dtype=bool)
+        action_mask[self.max_bots_count:self.max_bots_count +
+                    self.unit_act_dims] = unit_action_mask
         return action_mask

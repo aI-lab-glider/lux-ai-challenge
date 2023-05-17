@@ -122,12 +122,11 @@ class Agent:
             logits = self.policy.policy.action_net(x)
 
             logits[~action_mask] = -1e8  # mask out invalid actions
-            dist = th.distributions.Categorical(logits=logits)
-            actions = dist.sample().cpu().numpy()  # shape (1, 1)
-
-        # use our controller which we trained with in train.py to generate a Lux S2 compatible action
+            logits_by_dim = self.controller.split_logits_by_dim(logits)
+            dists = [th.distributions.Categorical(logits=l) for l in logits_by_dim]
+            action = [d.sample().cpu().numpy() for d in dists]
         lux_action = self.controller.action_to_lux_action(
-            self.player, raw_obs, actions[0]
+            self.player, raw_obs, action
         )
 
         # commented code below adds watering lichen which can easily improve your agent
