@@ -4,74 +4,43 @@ import gym
 import numpy as np
 import numpy.typing as npt
 from gym import spaces
+from luxai_s2.pyvisual.visualizer import Visualizer
+from luxai_s2.state import State
+from matplotlib import pyplot as plt
 
 
 class SimpleUnitObservationWrapper(gym.ObservationWrapper):
+    map_height = map_width = 200
+    
     def __init__(self, env: gym.Env) -> None:
         super().__init__(env)
-        self.observation_space = spaces.Box(-999, 999, shape=(13,))
+        
+        self.controller_robot_actions = 13
+        self.queue_size = 20
+        self.robot_count = 20
+        self.observation_space = spaces.Box(0, 255, dtype=np.uint8, shape=(self.map_height, self.map_width, 3))
+        # spaces.Dict({
+        #     # 'map_state': spaces.Box(0, 255, dtype=np.uint8, shape=(self.map_height, self.map_width, 3)),
+        #     # TODO: can it be dynamic??
+        #     # 'robot_queues': spaces.Box(0, self.controller_robot_actions, dtype=np.uint8, shape=(self.robot_count, self.queue_size))
+        # })
+        # spaces.Box(-999, 999, shape=(13,))
 
     def observation(self, obs):
         return SimpleUnitObservationWrapper.convert_obs(obs, self.env.state.env_cfg)
 
     # we make this method static so the submission/evaluation code can use this as well
-    @staticmethod
-    def convert_obs(obs: Dict[str, Any], env_cfg: Any) -> Dict[str, npt.NDArray]:
-        observation = dict()
-        shared_obs = obs["player_0"]
-        ice_map = shared_obs["board"]["ice"]
-        ice_tile_locations = np.argwhere(ice_map == 1)
+    @classmethod
+    def convert_obs(cls, obs: Dict[str, Any], env_cfg: Any) -> Dict[str, npt.NDArray]:
+        observation = {}
 
         for agent in obs.keys():
-            obs_vec = np.zeros(
-                13,
-            )
-
-            factories = shared_obs["factories"][agent]
-            factory_vec = np.zeros(2)
-            for k in factories.keys():
-                # here we track a normalized position of the first friendly factory
-                factory = factories[k]
-                factory_vec = np.array(factory["pos"]) / env_cfg.map_size
-                break
-            units = shared_obs["units"][agent]
-            for k in units.keys():
-                unit = units[k]
-
-                # store cargo+power values scaled to [0, 1]
-                cargo_space = env_cfg.ROBOTS[unit["unit_type"]].CARGO_SPACE
-                battery_cap = env_cfg.ROBOTS[unit["unit_type"]].BATTERY_CAPACITY
-                cargo_vec = np.array(
-                    [
-                        unit["power"] / battery_cap,
-                        unit["cargo"]["ice"] / cargo_space,
-                        unit["cargo"]["ore"] / cargo_space,
-                        unit["cargo"]["water"] / cargo_space,
-                        unit["cargo"]["metal"] / cargo_space,
-                    ]
-                )
-                unit_type = (
-                    0 if unit["unit_type"] == "LIGHT" else 1
-                )  # note that build actions use 0 to encode Light
-                # normalize the unit position
-                pos = np.array(unit["pos"]) / env_cfg.map_size
-                unit_vec = np.concatenate(
-                    [pos, [unit_type], cargo_vec, [unit["team_id"]]], axis=-1
-                )
-
-                # we add some engineered features down here
-                # compute closest ice tile
-                ice_tile_distances = np.mean(
-                    (ice_tile_locations - np.array(unit["pos"])) ** 2, 1
-                )
-                # normalize the ice tile location
-                closest_ice_tile = (
-                    ice_tile_locations[np.argmin(ice_tile_distances)] / env_cfg.map_size
-                )
-                obs_vec = np.concatenate(
-                    [unit_vec, factory_vec - pos, closest_ice_tile - pos], axis=-1
-                )
-                break
-            observation[agent] = obs_vec
-
+            env_state = State.from_obs(obs[agent], env_cfg)
+            vis = Visualizer(env_state)            
+            vis.update_scene(env_state)
+            img = vis._create_image_array(vis.surf, (cls.map_height, cls.map_width))
+            observation[agent] = img
+            # for unit in env_state.units[agent].values():
+            #     unit.action_queue
         return observation
+    

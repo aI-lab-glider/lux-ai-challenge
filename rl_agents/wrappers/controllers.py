@@ -1,6 +1,6 @@
 import sys
 from typing import Any, Dict
-
+from luxai_s2.state import State
 import numpy as np
 import numpy.typing as npt
 from gym import spaces
@@ -28,6 +28,7 @@ class Controller:
 
 
 class SimpleUnitDiscreteController(Controller):
+
     def __init__(self, env_cfg) -> None:
         """
         A simple controller that controls only the robot that will get spawned.
@@ -67,11 +68,12 @@ class SimpleUnitDiscreteController(Controller):
 
         self.unit_act_dims = self.no_op_dim_high
 
-        self.max_bots_count = 10
-        self.factory_act_count = 3
+        self.robots_number = 10
 
         action_space = spaces.MultiDiscrete(
-            [self.max_bots_count, self.unit_act_dims, self.factory_act_count])
+            [self.unit_act_dims for _ in range(self.robots_number)]
+        )
+
         super().__init__(action_space)
 
     def _is_move_action(self, id):
@@ -122,31 +124,25 @@ class SimpleUnitDiscreteController(Controller):
         shared_obs = obs["player_0"]
         lux_action = dict()
         units = shared_obs["units"][agent]
+        obs = State.from_obs(obs[agent], self.env_cfg)
 
-        """
-        Two actions take place here:
-        1. for one unit of created units an action is updated 
-        2. other units continue to do the same action as before
-        """
-
-        target_unit, unit_action, factory_action = [a[0] for a in action]
-        if len(units) > 0:
-            if str(target_unit) in units:
-                lux_action[self._create_unit_name(
-                    target_unit)] = self._map_action(unit_action)
-            else:
-                last_built_unit = list(units.keys())[-1]
-                lux_action[last_built_unit] = self._map_action(unit_action)
-
-        factories = shared_obs["factories"][agent]
-        if len(units) == 0:
-            for factory_id in factories.keys():
-                lux_action[factory_id] = 1  # build a single heavy
-        else:
-            for factory_id in factories.keys():
-                lux_action[factory_id] = factory_action  # build a single heavy
-
+        for unit_id, unit_action_id in zip(units.keys(), action):
+            # Note: map_action returns queue
+            mapped_action = self._map_action(unit_action_id)
+            if len(mapped_action) == 0 or self.is_action_valid(unit_id, unit_action_id, obs, mapped_action[0]):
+                lux_action[unit_id] = mapped_action
         return lux_action
+
+    def is_action_valid(self, unit_id, action, obs: State, mapped_action):
+        if self._is_move_action(action):
+            unit_position = obs.units["player_0"][unit_id].pos
+            # a[1] = direction (0 = center, 1 = up, 2 = right, 3 = down, 4 = left)
+            move_deltas = np.array([[0, 0], [0, -1], [1, 0], [0, 1], [-1, 0]])
+            move_dir = mapped_action[1]
+            new_position = unit_position + move_deltas[move_dir]
+            if not (new_position.x in range(obs.board.width)) or not (new_position.y in range(obs.board.height)):
+                return False
+        return True
 
     def split_logits_by_dim(self, logits):
         robot_id_logits = logits[:, :self.max_bots_count]

@@ -7,14 +7,11 @@ import copy
 import os.path as osp
 
 import gym
-import numpy as np
 import torch as th
 import torch.nn as nn
-from gym import spaces
 from gym.wrappers import TimeLimit
-from luxai_s2.state import ObservationStateDict, StatsStateDict
+from luxai_s2.state import StatsStateDict
 from luxai_s2.utils.heuristics.factory_placement import place_near_random_ice
-from luxai_s2.wrappers import SB3Wrapper
 from stable_baselines3.common.callbacks import (
     BaseCallback,
     CheckpointCallback,
@@ -29,6 +26,7 @@ from stable_baselines3.common.vec_env import (
     VecVideoRecorder,
 )
 from stable_baselines3.ppo import PPO
+from sb3_wrapper import SB3Wrapper
 
 from wrappers import SimpleUnitDiscreteController, SimpleUnitObservationWrapper
 
@@ -47,6 +45,7 @@ class CustomEnvWrapper(gym.Wrapper):
         opp_agent = "player_1"
 
         opp_factories = self.env.state.factories[opp_agent]
+
         for k in opp_factories.keys():
             factory = opp_factories[k]
             factory.cargo.water = 1000
@@ -90,10 +89,9 @@ class CustomEnvWrapper(gym.Wrapper):
                 self.prev_step_metrics["water_produced"]
             )
 
-            reward = ice_dug_this_step / FACTORY_ICE_PROCESSING_RATE + \
-                water_produced_this_step - robots_destroyed_this_step
+            reward = water_produced_this_step - robots_destroyed_this_step * 1000
 
-        self.prev_step_metrics = copy.deepcopy(metrics)
+        self.prev_step_metrics = copy.deepcopy(metrics)  # metric
         return obs, reward, done, info
 
     def reset(self, **kwargs):
@@ -222,23 +220,33 @@ def evaluate(args, env_id, model):
     print(out)
 
 
-def train(args, env_id, model: PPO):
-    eval_env = SubprocVecEnv(
-        [make_env(env_id, i, max_episode_steps=1000) for i in range(4)]
-    )
+def train(args, env_id, model: PPO, eval_envs_num):
+    max_episode_steps = 1000
+
+    eval_env = SubprocVecEnv([make_env(env_id, i, max_episode_steps=max_episode_steps)
+                              for i in range(eval_envs_num)]) \
+        if eval_envs_num > 1 else make_env(env_id, 0, max_episode_steps=max_episode_steps)()
+
     eval_callback = EvalCallback(
         eval_env,
         best_model_save_path=osp.join(args.log_path, "models"),
         log_path=osp.join(args.log_path, "eval_logs"),
-        eval_freq=24_000,
+        eval_freq=24 * max_episode_steps,
         deterministic=False,
         render=False,
         n_eval_episodes=5,
     )
 
+    model_checkpoint_callback = CheckpointCallback(
+        save_freq=24 * max_episode_steps,
+        save_path=osp.join(args.log_path, "models"),
+        name_prefix="conv_model",
+    )
+
     model.learn(
         args.total_timesteps,
-        callback=[TensorboardCallback(tag="train_metrics"), eval_callback],
+        callback=[TensorboardCallback(
+            tag="train_metrics"), eval_callback, model_checkpoint_callback],
     )
     model.save(osp.join(args.log_path, "models/latest_model"))
 
@@ -248,20 +256,22 @@ def main(args):
     if args.seed is not None:
         set_random_seed(args.seed)
     env_id = "LuxAI_S2-v0"
+
     env = SubprocVecEnv(
         [
             make_env(env_id, i, max_episode_steps=args.max_episode_steps)
             for i in range(args.n_envs)
         ]
-    )
+    ) if args.n_envs > 1 else make_env(env_id, 0, max_episode_steps=args.max_episode_steps)()
+
     env.reset()
-    rollout_steps = 4000
+    rollout_steps = 500  # 4000
     policy_kwargs = dict(net_arch=(128, 128))
     model = PPO(
-        "MlpPolicy",
+        "CnnPolicy",
         env,
         n_steps=rollout_steps // args.n_envs,
-        batch_size=800,
+        batch_size=rollout_steps,
         learning_rate=3e-4,
         policy_kwargs=policy_kwargs,
         verbose=1,
@@ -273,7 +283,7 @@ def main(args):
     if args.eval:
         evaluate(args, env_id, model)
     else:
-        train(args, env_id, model)
+        train(args, env_id, model, args.n_envs)
 
 
 if __name__ == "__main__":

@@ -96,6 +96,7 @@ class Agent:
     def act(self, step: int, obs, remainingOverageTime: int = 60):
         # first convert observations using the same observation wrapper you used for training
         # note that SimpleUnitObservationWrapper takes input as the full observation for both players and returns an obs for players
+
         raw_obs = dict(player_0=obs, player_1=obs)
         obs = SimpleUnitObservationWrapper.convert_obs(
             raw_obs, env_cfg=self.env_cfg)
@@ -123,7 +124,8 @@ class Agent:
 
             logits[~action_mask] = -1e8  # mask out invalid actions
             logits_by_dim = self.controller.split_logits_by_dim(logits)
-            dists = [th.distributions.Categorical(logits=l) for l in logits_by_dim]
+            dists = [th.distributions.Categorical(
+                logits=l) for l in logits_by_dim]
             action = [d.sample().cpu().numpy() for d in dists]
         lux_action = self.controller.action_to_lux_action(
             self.player, raw_obs, action
