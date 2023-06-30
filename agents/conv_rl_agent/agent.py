@@ -18,10 +18,11 @@ import os.path as osp
 import numpy as np
 import torch as th
 from stable_baselines3.ppo import PPO
-from lux.config import EnvConfig
-from lux.kit import obs_to_game_state
-from lux.utils import my_turn_to_place_factory
-from rl_agents.wrappers import SimpleUnitDiscreteController, SimpleUnitObservationWrapper
+from agents.lux.config import EnvConfig
+from agents.lux.kit import obs_to_game_state
+from agents.lux.utils import my_turn_to_place_factory
+from agents.conv_rl_agent.wrappers import SimpleUnitDiscreteController, SimpleUnitObservationWrapper
+from competition_repo.luxai_s2.luxai_s2.state.state import State
 MODEL_WEIGHTS_RELATIVE_PATH = "./best_model"
 
 
@@ -94,9 +95,6 @@ class Agent:
         return dict(spawn=pos, metal=metal, water=metal)
 
     def act(self, step: int, obs, remainingOverageTime: int = 60):
-        # first convert observations using the same observation wrapper you used for training
-        # note that SimpleUnitObservationWrapper takes input as the full observation for both players and returns an obs for players
-
         raw_obs = dict(player_0=obs, player_1=obs)
         obs = SimpleUnitObservationWrapper.convert_obs(
             raw_obs, env_cfg=self.env_cfg)
@@ -105,38 +103,20 @@ class Agent:
         obs = th.from_numpy(obs).float()
         if th.cuda.is_available():
             obs = obs.cuda()
+
         with th.no_grad():
+            action = self.policy.predict(obs.cpu().numpy())[0]
 
-            # to improve performance, we have a rule based action mask generator for the controller used
-            # which will force the agent to generate actions that are valid only.
-            action_mask = (
-                th.from_numpy(self.controller.action_masks(
-                    self.player, raw_obs))
-                .unsqueeze(0)
-                .bool()
-            )
-
-            # SB3 doesn't support invalid action masking. So we do it ourselves here
-            features = self.policy.policy.features_extractor(obs.unsqueeze(0))
-            x = self.policy.policy.mlp_extractor.shared_net(features)
-            # shape (1, N) where N=12 for the default controller
-            logits = self.policy.policy.action_net(x)
-
-            logits[~action_mask] = -1e8  # mask out invalid actions
-            logits_by_dim = self.controller.split_logits_by_dim(logits)
-            dists = [th.distributions.Categorical(
-                logits=l) for l in logits_by_dim]
-            action = [d.sample().cpu().numpy() for d in dists]
         lux_action = self.controller.action_to_lux_action(
-            self.player, raw_obs, action
+            self.player, raw_obs, action, self.player
         )
-
         # commented code below adds watering lichen which can easily improve your agent
-        # shared_obs = raw_obs[self.player]
-        # factories = shared_obs["factories"][self.player]
-        # for unit_id in factories.keys():
-        #     factory = factories[unit_id]
-        #     if 1000 - step < 50 and factory["cargo"]["water"] > 100:
-        #         lux_action[unit_id] = 2 # water and grow lichen at the very end of the game
+        shared_obs = raw_obs[self.player]
+        factories = shared_obs["factories"][self.player]
+        for unit_id in factories.keys():
+            factory = factories[unit_id]
+            if step % 100 == 0 and factory["cargo"]["water"] > 100:
+                # water and grow lichen at the very end of the game
+                lux_action[unit_id] = 2
 
         return lux_action

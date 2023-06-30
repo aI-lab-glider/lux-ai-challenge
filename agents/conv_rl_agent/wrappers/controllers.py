@@ -119,9 +119,9 @@ class SimpleUnitDiscreteController(Controller):
         return f'unit_{id}'
 
     def action_to_lux_action(
-        self, agent: str, obs: Dict[str, Any], action: npt.NDArray
+        self, agent: str, obs: Dict[str, Any], action: npt.NDArray, player
     ):
-        shared_obs = obs["player_0"]
+        shared_obs = obs[player]
         lux_action = dict()
         units = shared_obs["units"][agent]
         obs = State.from_obs(obs[agent], self.env_cfg)
@@ -129,13 +129,19 @@ class SimpleUnitDiscreteController(Controller):
         for unit_id, unit_action_id in zip(units.keys(), action):
             # Note: map_action returns queue
             mapped_action = self._map_action(unit_action_id)
-            if len(mapped_action) == 0 or self.is_action_valid(unit_id, unit_action_id, obs, mapped_action[0]):
+            if len(mapped_action) == 0 or self.is_action_valid(unit_id, unit_action_id, obs, mapped_action[0], player):
                 lux_action[unit_id] = mapped_action
+
+        factories = shared_obs["factories"][agent]
+        if len(units) < 1:
+            for factory_id in factories.keys():
+                lux_action[factory_id] = 1
+
         return lux_action
 
-    def is_action_valid(self, unit_id, action, obs: State, mapped_action):
+    def is_action_valid(self, unit_id, action, obs: State, mapped_action, player):
         if self._is_move_action(action):
-            unit_position = obs.units["player_0"][unit_id].pos
+            unit_position = obs.units[player][unit_id].pos
             # a[1] = direction (0 = center, 1 = up, 2 = right, 3 = down, 4 = left)
             move_deltas = np.array([[0, 0], [0, -1], [1, 0], [0, 1], [-1, 0]])
             move_dir = mapped_action[1]
@@ -143,100 +149,3 @@ class SimpleUnitDiscreteController(Controller):
             if not (new_position.x in range(obs.board.width)) or not (new_position.y in range(obs.board.height)):
                 return False
         return True
-
-    def split_logits_by_dim(self, logits):
-        robot_id_logits = logits[:, :self.max_bots_count]
-        unit_action_logits = logits[:, self.max_bots_count:
-                                    self.max_bots_count + self.unit_act_dims]
-        factory_action_logits = logits[:, -self.factory_act_count+1:]
-        return robot_id_logits, unit_action_logits, factory_action_logits
-
-    def action_masks(self, agent: str, obs: Dict[str, Any]):
-        """
-        Defines a simplified action mask for this controller's action space
-
-        Doesn't account for whether robot has enough power
-        """
-
-        # compute a factory occupancy map that will be useful for checking if a board tile
-        # has a factory and which team's factory it is.
-        shared_obs = obs[agent]
-        factory_occupancy_map = (
-            np.ones_like(shared_obs["board"]["rubble"], dtype=int) * -1
-        )
-        factories = dict()
-        for player in shared_obs["factories"]:
-            factories[player] = dict()
-            for unit_id in shared_obs["factories"][player]:
-                f_data = shared_obs["factories"][player][unit_id]
-                f_pos = f_data["pos"]
-                # store in a 3x3 space around the factory position it's strain id.
-                factory_occupancy_map[
-                    f_pos[0] - 1: f_pos[0] + 2, f_pos[1] - 1: f_pos[1] + 2
-                ] = f_data["strain_id"]
-
-        units = shared_obs["units"][agent]
-
-        unit_action_mask = np.zeros(self.unit_act_dims, dtype=bool)
-        for unit_id in units.keys():
-
-            # movement is always valid
-            unit_action_mask[:4] = True
-
-            # transferring is valid only if the target exists
-            unit = units[unit_id]
-            pos = np.array(unit["pos"])
-            # a[1] = direction (0 = center, 1 = up, 2 = right, 3 = down, 4 = left)
-            move_deltas = np.array([[0, 0], [0, -1], [1, 0], [0, 1], [-1, 0]])
-            for i, move_delta in enumerate(move_deltas):
-                transfer_pos = np.array(
-                    [pos[0] + move_delta[0], pos[1] + move_delta[1]]
-                )
-                # check if theres a factory tile there
-                if (
-                    transfer_pos[0] < 0
-                    or transfer_pos[1] < 0
-                    or transfer_pos[0] >= len(factory_occupancy_map)
-                    or transfer_pos[1] >= len(factory_occupancy_map[0])
-                ):
-                    continue
-                factory_there = factory_occupancy_map[transfer_pos[0],
-                                                      transfer_pos[1]]
-                if factory_there in shared_obs["teams"][agent]["factory_strains"]:
-                    unit_action_mask[
-                        self.transfer_dim_high - self.transfer_act_dims + i
-                    ] = True
-
-            factory_there = factory_occupancy_map[pos[0], pos[1]]
-            on_top_of_factory = (
-                factory_there in shared_obs["teams"][agent]["factory_strains"]
-            )
-
-            # dig is valid only if on top of tile with rubble or resources or lichen
-            board_sum = (
-                shared_obs["board"]["ice"][pos[0], pos[1]]
-                + shared_obs["board"]["ore"][pos[0], pos[1]]
-                + shared_obs["board"]["rubble"][pos[0], pos[1]]
-                + shared_obs["board"]["lichen"][pos[0], pos[1]]
-            )
-            if board_sum > 0 and not on_top_of_factory:
-                unit_action_mask[
-                    self.dig_dim_high - self.dig_act_dims: self.dig_dim_high
-                ] = True
-
-            # pickup is valid only if on top of factory tile
-            if on_top_of_factory:
-                unit_action_mask[
-                    self.pickup_dim_high - self.pickup_act_dims: self.pickup_dim_high
-                ] = True
-                unit_action_mask[
-                    self.dig_dim_high - self.dig_act_dims: self.dig_dim_high
-                ] = False
-
-            # no-op is always valid
-            unit_action_mask[-1] = True
-            break
-        action_mask = np.ones((sum(self.action_space.nvec), ), dtype=bool)
-        action_mask[self.max_bots_count:self.max_bots_count +
-                    self.unit_act_dims] = unit_action_mask
-        return action_mask

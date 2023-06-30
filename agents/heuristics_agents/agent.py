@@ -1,6 +1,6 @@
-from lux.kit import obs_to_game_state, GameState
-from lux.config import EnvConfig
-from lux.utils import direction_to, my_turn_to_place_factory
+from agents.lux.kit import obs_to_game_state, GameState
+from agents.lux.config import EnvConfig
+from agents.lux.utils import direction_to, my_turn_to_place_factory
 import numpy as np
 import sys
 
@@ -43,7 +43,7 @@ class Agent:
 
         """
         optionally do forward simulation to simulate positions of units, lichen, etc. in the future
-        from lux.forward_sim import forward_sim
+        from agents.lux.forward_sim import forward_sim
         forward_obs = forward_sim(obs, self.env_cfg, n=2)
         forward_game_states = [obs_to_game_state(step + i, self.env_cfg, f_obs) for i, f_obs in enumerate(forward_obs)]
         """

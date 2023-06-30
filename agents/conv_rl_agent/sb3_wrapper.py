@@ -85,7 +85,7 @@ class SB3Wrapper(gym.Wrapper):
                 lux_action[agent] = self.controller.action_to_lux_action(  # An idea here is to reduce action space.
                     # Below, This controller is based on the observations.
                     # Observations, are produced by observation wrapper.
-                    agent=agent, obs=self.prev_obs, action=action[agent]
+                    agent=agent, obs=self.prev_obs, action=action[agent], player=agent
                 )
             else:
                 lux_action[agent] = dict()

@@ -3,9 +3,12 @@ from typing import Dict
 import sys
 from argparse import Namespace
 
-from conv_rl_agent.agent import Agent
-from lux.config import EnvConfig
-from lux.kit import GameState, process_obs, to_json, from_json, process_action, obs_to_game_state
+from agents.single_robot_rl_control.agent import Agent
+from agents.lux.config import EnvConfig
+from agents.lux.kit import GameState, process_obs, to_json, from_json, process_action, obs_to_game_state
+import os
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
+
 ### DO NOT REMOVE THE FOLLOWING CODE ###
 # store potentially multiple dictionaries as kaggle imports code directly
 agent_dict = dict()
@@ -40,6 +43,7 @@ def agent_fn(observation, configurations):
 
 
 if __name__ == "__main__":
+
     def read_input():
         """
         Reads input from stdin

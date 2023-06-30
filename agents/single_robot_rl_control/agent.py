@@ -18,10 +18,10 @@ import os.path as osp
 import numpy as np
 import torch as th
 from stable_baselines3.ppo import PPO
-from lux.config import EnvConfig
-from lux.kit import obs_to_game_state
-from lux.utils import my_turn_to_place_factory
-from conv_rl_agent.wrappers import SimpleUnitDiscreteController, SimpleUnitObservationWrapper
+from agents.lux.config import EnvConfig
+from agents.lux.kit import obs_to_game_state
+from agents.lux.utils import my_turn_to_place_factory
+from agents.single_robot_rl_control.wrappers import SimpleUnitDiscreteController, SimpleUnitObservationWrapper
 MODEL_WEIGHTS_RELATIVE_PATH = "./best_model"
 
 
@@ -131,11 +131,12 @@ class Agent:
         )
 
         # commented code below adds watering lichen which can easily improve your agent
-        # shared_obs = raw_obs[self.player]
-        # factories = shared_obs["factories"][self.player]
-        # for unit_id in factories.keys():
-        #     factory = factories[unit_id]
-        #     if 1000 - step < 50 and factory["cargo"]["water"] > 100:
-        #         lux_action[unit_id] = 2 # water and grow lichen at the very end of the game
+        shared_obs = raw_obs[self.player]
+        factories = shared_obs["factories"][self.player]
+        for unit_id in factories.keys():
+            factory = factories[unit_id]
+            if step % 100 == 0 and factory["cargo"]["water"] > 100:
+                # water and grow lichen at the very end of the game
+                lux_action[unit_id] = 2
 
         return lux_action

@@ -1,13 +1,17 @@
 from dataclasses import dataclass, field
 from typing import Dict
 import numpy as np
-from lux.cargo import UnitCargo
-from lux.config import EnvConfig
-from lux.team import Team, FactionTypes
-from lux.unit import Unit
-from lux.factory import Factory
+from agents.lux.cargo import UnitCargo
+from agents.lux.config import EnvConfig
+from agents.lux.team import Team, FactionTypes
+from agents.lux.unit import Unit
+from agents.lux.factory import Factory
+
+
 def process_action(action):
     return to_json(action)
+
+
 def to_json(obj):
     if isinstance(obj, np.ndarray):
         return obj.tolist()
@@ -24,6 +28,8 @@ def to_json(obj):
         return out
     else:
         return obj
+
+
 def from_json(state):
     if isinstance(state, list):
         return np.array(state)
@@ -33,7 +39,8 @@ def from_json(state):
             out[k] = from_json(state[k])
         return out
     else:
-        return state 
+        return state
+
 
 def process_obs(player, game_state, step, obs):
     if step == 0:
@@ -55,8 +62,9 @@ def process_obs(player, game_state, step, obs):
                 game_state["board"][item][x, y] = v
     return game_state
 
+
 def obs_to_game_state(step, env_cfg: EnvConfig, obs):
-    
+
     units = dict()
     for agent in obs["units"]:
         units[agent] = dict()
@@ -70,9 +78,9 @@ def obs_to_game_state(step, env_cfg: EnvConfig, obs):
             )
             unit.cargo = cargo
             units[agent][unit_id] = unit
-            
 
-    factory_occupancy_map = np.ones_like(obs["board"]["rubble"], dtype=int) * -1
+    factory_occupancy_map = np.ones_like(
+        obs["board"]["rubble"], dtype=int) * -1
     factories = dict()
     for agent in obs["factories"]:
         factories[agent] = dict()
@@ -111,6 +119,7 @@ def obs_to_game_state(step, env_cfg: EnvConfig, obs):
 
     )
 
+
 @dataclass
 class Board:
     rubble: np.ndarray
@@ -121,6 +130,8 @@ class Board:
     factory_occupancy_map: np.ndarray
     factories_per_team: int
     valid_spawns_mask: np.ndarray
+
+
 @dataclass
 class GameState:
     """
@@ -132,6 +143,7 @@ class GameState:
     units: Dict[str, Dict[str, Unit]] = field(default_factory=dict)
     factories: Dict[str, Dict[str, Factory]] = field(default_factory=dict)
     teams: Dict[str, Team] = field(default_factory=dict)
+
     @property
     def real_env_steps(self):
         """
@@ -143,8 +155,7 @@ class GameState:
         else:
             return self.env_steps
 
-
     # various utility functions
+
     def is_day(self):
         return self.real_env_steps % self.env_cfg.CYCLE_LENGTH < self.env_cfg.DAY_LENGTH
-

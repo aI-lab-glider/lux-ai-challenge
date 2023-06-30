@@ -3,3 +3,4 @@ competition_repo/
 logs/
 __pycache__/
 submission/
+tournament_logs/
