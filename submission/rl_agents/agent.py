@@ -21,7 +21,7 @@ from stable_baselines3.ppo import PPO
 from lux.config import EnvConfig
 from lux.kit import obs_to_game_state
 from lux.utils import my_turn_to_place_factory
-from rl_agents.wrappers import SimpleUnitDiscreteController, SimpleUnitObservationWrapper
+from conv_rl_agent.wrappers import SimpleUnitDiscreteController, SimpleUnitObservationWrapper
 MODEL_WEIGHTS_RELATIVE_PATH = "./best_model"
 
 
@@ -123,7 +123,8 @@ class Agent:
 
             logits[~action_mask] = -1e8  # mask out invalid actions
             logits_by_dim = self.controller.split_logits_by_dim(logits)
-            dists = [th.distributions.Categorical(logits=l) for l in logits_by_dim]
+            dists = [th.distributions.Categorical(
+                logits=l) for l in logits_by_dim]
             action = [d.sample().cpu().numpy() for d in dists]
         lux_action = self.controller.action_to_lux_action(
             self.player, raw_obs, action

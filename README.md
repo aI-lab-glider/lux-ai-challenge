@@ -1,16 +1,13 @@
-# Reinforcement Learning Kits
+# Goals
 
-This folder has all the reinforcement learning starter kits. Check the following README's for how to get started with RL in each of the provided support for RL libraries. At the moment the Jax based environment has not been integrated into the starter kits, that is WIP.
+1. Collect as much lichen as possible while not ruining your factory
 
-For thos who need to know what python packages are available on the competition server, see [this](https://github.com/Lux-AI-Challenge/Lux-Design-S2/tree/main/kits/available_packages.txt)
+# Agents tournament
 
-- [Stable Baselines 3](https://github.com/Lux-AI-Challenge/Lux-Design-S2/tree/main/kits/rl/sb3)
-- CleanRL Style (Single File Implementation) - WIP
+To run a torunament between players run a command:
 
-For a tutorial series on how to implement a simple RL agent, checkout these Kaggle notebooks!
+```
+python run_tournament.py agents/rule_based_agent agents/rule_based_agent 
+```
 
-1. [Intro to RL](https://www.kaggle.com/code/stonet2000/rl-with-lux-1-intro-to-rl)
-2. [RL Problem Solving](https://www.kaggle.com/code/stonet2000/rl-with-lux-2-rl-problem-solving)
-
-
-For Japanese translated versions, a member of our community kindly translated the above notebooks, see https://www.kaggle.com/competitions/lux-ai-season-2/code.
+To visualize tournament result visit an official [lux-ai visualizer](https://s2vis.lux-ai.org/#/visualizer) and upload tournament logs, that could be found in folder `tournment_logs` after running the command above.
