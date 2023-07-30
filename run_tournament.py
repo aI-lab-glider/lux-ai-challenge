@@ -26,8 +26,8 @@ if __name__ == '__main__':
     for file in tournament_logs.parent.iterdir():
         file.unlink()
 
-    result = subprocess.run(['luxai-s2', players[0], players[1], '-v', '3',
-                            '-s', '101', '-o', f'{tournament_logs}.json',])
+    result = subprocess.run(['luxai-s2', players[0], players[1],
+                            '-v', '3', '-s', '101', '-o', f'{tournament_logs}.json',])
 
     # for player in players:
     #     if player.exists():
