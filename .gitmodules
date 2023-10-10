@@ -1,0 +1,9 @@
+[submodule "solutions/Luxai-s2-Baseline"]
+	path = solutions/Luxai-s2-Baseline
+	url = git@github.com:BooCreator/Lux-AI-Season-2-Strategy-Library.git
+[submodule "solutions/10th_place"]
+	path = solutions/10th_place
+	url = git@github.com:RoboEden/lux2-deimos.git
+[submodule "solutions/15th_place"]
+	path = solutions/15th_place
+	url = git@github.com:BartvonMeijenfeldt/LuxAISeason2Bot.git
